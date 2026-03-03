@@ -1,0 +1,240 @@
+using System;
+using System.IO;
+using System.Text;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace BetterPad
+{
+    // Main window 
+    public partial class FormEditor : Form
+    {
+        private string _currentPath = string.Empty;
+        private bool _isDirty = false;
+        private float _zoomFactor = 1.0f;
+
+        // Runs when the program starts
+        public FormEditor()
+        {
+            InitializeComponent();
+            WireUpEvents();
+            UpdateTitle();
+            UpdateStatus();
+        }
+
+        // Connects all menu items and buttons to their actions
+        private void WireUpEvents()
+        {
+            rtbEditor.TextChanged += (s, e) =>
+            {
+                _isDirty = true;
+                UpdateTitle();
+            };
+
+            rtbEditor.SelectionChanged += (s, e) =>
+            {
+                UpdateStatus();
+            };
+
+            FormClosing += (s, e) =>
+            {
+                if (!PromptSaveIfDirty())
+                    e.Cancel = true;
+            };
+
+            mnuFileNew.Click += (s, e) => NewFile();
+            mnuFileOpen.Click += (s, e) => OpenFile();
+            mnuFileSave.Click += (s, e) => SaveFile();
+            mnuFileSaveAs.Click += (s, e) => SaveFileAs();
+            mnuFileExit.Click += (s, e) => Close();
+
+            mnuEditUndo.Click += (s, e) => { if (rtbEditor.CanUndo) rtbEditor.Undo(); };
+            mnuEditRedo.Click += (s, e) => { if (rtbEditor.CanRedo) rtbEditor.Redo(); };
+            mnuEditCut.Click += (s, e) => rtbEditor.Cut();
+            mnuEditCopy.Click += (s, e) => rtbEditor.Copy();
+            mnuEditPaste.Click += (s, e) => rtbEditor.Paste();
+            mnuEditSelectAll.Click += (s, e) => rtbEditor.SelectAll();
+            mnuEditFindReplace.Click += (s, e) => ShowFindReplace();
+
+            mnuFormatWordWrap.Click += (s, e) =>
+            {
+                rtbEditor.WordWrap = mnuFormatWordWrap.Checked;
+                UpdateStatus();
+            };
+
+            mnuFormatFont.Click += (s, e) => PickFont();
+
+            mnuViewZoomIn.Click += (s, e) => SetZoom(_zoomFactor + 0.1f);
+            mnuViewZoomOut.Click += (s, e) => SetZoom(_zoomFactor - 0.1f);
+            mnuViewZoomReset.Click += (s, e) => SetZoom(1.0f);
+
+            mnuViewStatusBar.Click += (s, e) =>
+            {
+                statusMain.Visible = mnuViewStatusBar.Checked;
+            };
+
+            mnuHelpAbout.Click += (s, e) =>
+            {
+                MessageBox.Show(this,
+                    "BetterPad (WinForms)\nA simple text editor with a cleaner UX.\n\nMade for a class assignment.",
+                    "About BetterPad",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            };
+
+            btnNew.Click += (s, e) => NewFile();
+            btnOpen.Click += (s, e) => OpenFile();
+            btnSave.Click += (s, e) => SaveFile();
+            btnCut.Click += (s, e) => rtbEditor.Cut();
+            btnCopy.Click += (s, e) => rtbEditor.Copy();
+            btnPaste.Click += (s, e) => rtbEditor.Paste();
+            btnUndo.Click += (s, e) => { if (rtbEditor.CanUndo) rtbEditor.Undo(); };
+            btnRedo.Click += (s, e) => { if (rtbEditor.CanRedo) rtbEditor.Redo(); };
+            btnFind.Click += (s, e) => ShowFindReplace();
+        }
+
+        // Creates a new blank document
+        private void NewFile()
+        {
+            if (!PromptSaveIfDirty()) return;
+
+            rtbEditor.Clear();
+            _currentPath = string.Empty;
+            _isDirty = false;
+
+            UpdateTitle();
+            UpdateStatus();
+        }
+
+        // Opens a text file from the computer
+        private void OpenFile()
+        {
+            if (!PromptSaveIfDirty()) return;
+
+            if (dlgOpen.ShowDialog(this) != DialogResult.OK) return;
+
+            string text = File.ReadAllText(dlgOpen.FileName, Encoding.UTF8);
+            rtbEditor.Text = text;
+
+            _currentPath = dlgOpen.FileName;
+            _isDirty = false;
+
+            UpdateTitle();
+            UpdateStatus();
+        }
+
+        // Saves the current file
+        private void SaveFile()
+        {
+            if (string.IsNullOrWhiteSpace(_currentPath))
+            {
+                SaveFileAs();
+                return;
+            }
+
+            File.WriteAllText(_currentPath, rtbEditor.Text, Encoding.UTF8);
+            _isDirty = false;
+            UpdateTitle();
+        }
+
+        // Saves the file with a new name or location
+        private void SaveFileAs()
+        {
+            dlgSave.FileName = string.IsNullOrWhiteSpace(_currentPath)
+                ? "Untitled.txt"
+                : Path.GetFileName(_currentPath);
+
+            if (dlgSave.ShowDialog(this) != DialogResult.OK) return;
+
+            _currentPath = dlgSave.FileName;
+            SaveFile();
+        }
+
+        // Lets the user change the font
+        private void PickFont()
+        {
+            dlgFont.Font = rtbEditor.Font;
+
+            if (dlgFont.ShowDialog(this) != DialogResult.OK) return;
+
+            rtbEditor.Font = dlgFont.Font;
+        }
+
+        // Updates the window title
+        private void UpdateTitle()
+        {
+            string name = string.IsNullOrWhiteSpace(_currentPath)
+                ? "Untitled.txt"
+                : Path.GetFileName(_currentPath);
+
+            string star = _isDirty ? "*" : "";
+
+            Text = $"BetterPad — {name}{star}";
+        }
+
+        // Updates the bottom status bar
+        private void UpdateStatus()
+        {
+            int index = rtbEditor.SelectionStart;
+            int line = rtbEditor.GetLineFromCharIndex(index);
+            int first = rtbEditor.GetFirstCharIndexFromLine(line);
+            int col = index - first;
+
+            lblLnCol.Text = $"Ln {line + 1}, Col {col + 1}";
+            lblZoom.Text = $"{(int)Math.Round(_zoomFactor * 100)}%";
+            lblEncoding.Text = rtbEditor.WordWrap ? "UTF-8 • Wrap" : "UTF-8 • NoWrap";
+            lblMode.Text = "INS";
+        }
+
+        // zoom level
+        private void SetZoom(float value)
+        {
+            if (value < 0.5f) value = 0.5f;
+            if (value > 3.0f) value = 3.0f;
+
+            _zoomFactor = value;
+            rtbEditor.ZoomFactor = _zoomFactor;
+            UpdateStatus();
+        }
+
+        // Asks about saving
+        private bool PromptSaveIfDirty()
+        {
+            if (!_isDirty) return true;
+
+            var result = MessageBox.Show(this,
+                "You have unsaved changes. Save now?",
+                "Save changes",
+                MessageBoxButtons.YesNoCancel,
+                MessageBoxIcon.Warning);
+
+            if (result == DialogResult.Cancel) return false;
+
+            if (result == DialogResult.Yes)
+                SaveFile();
+
+            return true;
+        }
+
+        // Opens the Find/Replace window
+        private void ShowFindReplace()
+        {
+            using var dlg = new FindReplaceDialog(this, rtbEditor);
+            dlg.ShowDialog(this);
+        }
+
+        // window for finding and replacing text
+        private sealed class FindReplaceDialog : Form
+        {
+            
+private FormEditor formEditor;
+            private RichTextBox rtbEditor;
+
+            public FindReplaceDialog(FormEditor formEditor, RichTextBox rtbEditor)
+            {
+                this.formEditor = formEditor;
+                this.rtbEditor = rtbEditor;
+            }
+        }
+    }
+}
